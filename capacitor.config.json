@@ -1,0 +1,6 @@
+{
+  "appId": "bg.alwaysfit.app",
+  "appName": "Always Fit",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
