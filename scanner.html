@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Always Fit — Scanner v1</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#111;background:#fff}
+*{box-sizing:border-box}body{margin:0;background:#fff}.app{max-width:1050px;margin:auto;padding:18px;min-height:100vh}
+.header{display:flex;justify-content:space-between;align-items:center;padding:5px 0 16px}.brand{font-size:27px;font-weight:900;letter-spacing:-1px}.badge{border:1px solid #111;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:900}
+h1{font-size:34px;margin:8px 0 5px;letter-spacing:-1.2px}.sub{color:#666;margin-bottom:16px}.layout{display:grid;grid-template-columns:1.25fr .75fr;gap:14px}
+.stage{background:#111;border-radius:22px;overflow:hidden;position:relative;aspect-ratio:4/3;min-height:420px}.stage video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block}.stage canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
+.top{position:absolute;z-index:3;top:14px;left:14px;right:14px;display:flex;justify-content:space-between;align-items:center}.live{background:#fff;color:#111;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:900}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#111;margin-right:5px}.guide{position:absolute;z-index:2;inset:13% 20%;border:1px solid rgba(255,255,255,.7);border-radius:22px;pointer-events:none}.bottom{position:absolute;z-index:3;bottom:14px;left:14px;right:14px;display:flex;gap:8px}.btn{border:1px solid #111;border-radius:12px;padding:11px 14px;font-weight:900;cursor:pointer}.primary{background:#111;color:#fff}.secondary{background:#fff;color:#111}.panel{display:grid;gap:10px}.card{border:1px solid #ddd;border-radius:18px;padding:16px;background:#fff}.eyebrow{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.8px;color:#666}.big{font-size:48px;font-weight:950;line-height:1;margin:7px 0}.phase{font-size:18px;font-weight:900;margin-top:6px}.meter{height:10px;border-radius:99px;background:#eee;overflow:hidden;margin-top:12px}.fill{height:100%;width:0;background:#111;transition:width .12s}.row{display:flex;justify-content:space-between;gap:10px;margin:9px 0}.value{font-weight:900}.feedback{font-weight:900;font-size:18px}.hint{color:#666;font-size:13px;line-height:1.45}.notice{background:#f5f5f5;border-radius:14px;padding:12px;font-size:12px;line-height:1.45;color:#444}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.stage{min-height:300px}.app{padding:12px}}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="header"><div class="brand">Always Fit</div><div class="badge">SCANNER v1</div></header>
+<h1>Клек — Pose Scanner</h1><div class="sub">Камера + разпознаване на позата + автоматично броене.</div>
+<div class="layout">
+<section class="stage">
+<video id="video" playsinline muted></video><canvas id="canvas"></canvas><div class="guide"></div>
+<div class="top"><div class="live"><span class="dot"></span><span id="liveText">OFFLINE</span></div><div class="live" id="sideText">Застани странично</div></div>
+<div class="bottom"><button class="btn primary" id="start">Стартирай камерата</button><button class="btn secondary" id="reset">Нулирай</button></div>
+</section>
+<aside class="panel">
+<div class="card"><div class="eyebrow">Повторения</div><div class="big" id="reps">0</div><div class="hint">DOWN → UP = 1 повторение</div></div>
+<div class="card"><div class="eyebrow">Фаза</div><div class="phase" id="phase">Изчакване</div><div class="meter"><div class="fill" id="depth"></div></div></div>
+<div class="card"><div class="row"><span>Ляво коляно</span><span class="value" id="leftAngle">—</span></div><div class="row"><span>Дясно коляно</span><span class="value" id="rightAngle">—</span></div><div class="row"><span>Дълбочина</span><span class="value" id="depthText">—</span></div></div>
+<div class="card"><div class="eyebrow">Обратна връзка</div><div class="feedback" id="feedback">Постави камерата и започни.</div><div class="hint" id="detail">Системата ще анализира видимите точки на тялото.</div></div>
+<div class="notice"><b>Първа версия:</b> използва pose landmarks за приблизителен анализ на клека. Това не е медицинска оценка и не гарантира правилна техника.</div>
+</aside></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+<script>
+const video=document.getElementById('video'),canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+const repsEl=document.getElementById('reps'),phaseEl=document.getElementById('phase'),feedbackEl=document.getElementById('feedback'),detailEl=document.getElementById('detail'),leftEl=document.getElementById('leftAngle'),rightEl=document.getElementById('rightAngle'),depthEl=document.getElementById('depth'),depthText=document.getElementById('depthText'),liveText=document.getElementById('liveText');
+let reps=0,state='up',camera=null,started=false;
+function angle(a,b,c){const ab={x:a.x-b.x,y:a.y-b.y},cb={x:c.x-b.x,y:c.y-b.y};const dot=ab.x*cb.x+ab.y*cb.y;const den=Math.hypot(ab.x,ab.y)*Math.hypot(cb.x,cb.y);return Math.acos(Math.max(-1,Math.min(1,dot/den)))*180/Math.PI}
+function pct(v){return Math.max(0,Math.min(100,(180-v)/90*100))}
+function onResults(r){canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;ctx.clearRect(0,0,canvas.width,canvas.height);if(!r.poseLandmarks){feedbackEl.textContent='Не виждам цялото тяло';detailEl.textContent='Отдалечи се малко и постави тялото в рамката.';return}
+ drawConnectors(ctx,r.poseLandmarks,POSE_CONNECTIONS,{color:'#fff',lineWidth:4});drawLandmarks(ctx,r.poseLandmarks,{color:'#fff',lineWidth:2,radius:5});
+ const p=r.poseLandmarks,L=p[23],R=p[24],LK=p[25],RK=p[26],LA=p[27],RA=p[28];
+ const la=angle(L,LK,LA),ra=angle(R,RK,RA),k=(la+ra)/2;leftEl.textContent=Math.round(la)+'°';rightEl.textContent=Math.round(ra)+'°';
+ const d=pct(k);depthEl.style.width=d+'%';depthText.textContent=Math.round(k)+'°';
+ if(k<105){phaseEl.textContent='Долу';if(state==='up'){state='down';feedbackEl.textContent='⬇️ Добре — задръж контрол';detailEl.textContent='Опитай да запазиш стабилен торс и колене.'}}
+ else if(k>160){phaseEl.textContent='Горе';if(state==='down'){reps++;repsEl.textContent=reps;state='up';feedbackEl.textContent='✓ Повторението е отчетено';detailEl.textContent='Продължи със същия контрол.'}}
+ else {phaseEl.textContent=k<135?'Надолу':'Нагоре';feedbackEl.textContent=k<135?'Контролирай слизането':'Подготви следващото повторение'}
+}
+const pose=new Pose({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});pose.setOptions({modelComplexity:1,smoothLandmarks:true,enableSegmentation:false,minDetectionConfidence:.6,minTrackingConfidence:.6});pose.onResults(onResults);
+document.getElementById('start').onclick=async()=>{if(started){if(camera)camera.stop();video.srcObject?.getTracks().forEach(t=>t.stop());started=false;liveText.textContent='OFFLINE';document.getElementById('start').textContent='Стартирай камерата';return}try{camera=new Camera(video,{onFrame:async()=>{await pose.send({image:video})},width:640,height:480});camera.start();started=true;liveText.textContent='LIVE';document.getElementById('start').textContent='Спри камерата';}catch(e){feedbackEl.textContent='Камерата не може да се стартира';detailEl.textContent='Провери разрешението за камера и отвори страницата през сигурен контекст (HTTPS/localhost).';}};
+document.getElementById('reset').onclick=()=>{reps=0;state='up';repsEl.textContent='0';phaseEl.textContent='Изчакване';leftEl.textContent=rightEl.textContent=depthText.textContent='—';depthEl.style.width='0%';feedbackEl.textContent='Постави камерата и започни.';detailEl.textContent='Системата ще анализира видимите точки на тялото.'};
+</script></body></html>
